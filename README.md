@@ -11,20 +11,8 @@ Este repositorio utiliza **ramas** para separar versiones y arquitecturas (por e
 Ejecuta el instalador directamente desde GitHub:
 
 ```bash
-curl -s https://raw.githubusercontent.com/josianascanio/idempiere/HEAD/provision.sh | bash
+curl -s https://raw.githubusercontent.com/josianascanio/idempiere/[nombre-de-la-rama]/provision.sh | bash
 ```
-
-### ¿Qué significa `HEAD`?
-`HEAD` se adapta automáticamente a la **rama actual** desde donde estés viendo el README.
-
-- Si estás en la rama `12`, descargará el script de `12`.
-- Si estás en la rama `12-arm`, descargará el script de `12-arm`.
-
----
-
-## 🌿 Elegir una rama específica
-
-Si quieres usar una versión concreta, solo cambia la rama en la URL.
 
 ### Ejemplo (rama 12-arm)
 
