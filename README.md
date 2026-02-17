@@ -11,13 +11,13 @@ Este repositorio utiliza **ramas** para separar versiones y arquitecturas (por e
 Ejecuta el instalador directamente desde GitHub:
 
 ```bash
-curl -s https://raw.githubusercontent.com/josianascanio/idempiere/[nombre-de-la-rama]/provision.sh | bash
+sudo bash -c 'bash <(curl -fsSL https://raw.githubusercontent.com/josianascanio/idempiere/<NOMBRE-DE-LA-RAMA>/provision.sh)'
 ```
 
 ### Ejemplo (rama 12-arm)
 
 ```bash
-curl -s https://raw.githubusercontent.com/josianascanio/idempiere/12-arm/provision.sh | bash
+sudo bash -c 'bash <(curl -fsSL https://raw.githubusercontent.com/josianascanio/idempiere/12-arm/provision.sh)'
 ```
 
 ---
