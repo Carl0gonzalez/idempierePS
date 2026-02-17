@@ -8,7 +8,7 @@ Este repositorio utiliza **ramas** para separar versiones y arquitecturas (por e
 
 ## 🚀 Instalación rápida (una sola línea)
 
-Ejecuta el instalador directamente desde GitHub:
+Ejecuta el instalador directamente desde GitHub reemplazando el nombre de la rama en <NOMBRE-DE-LA-RAMA>:
 
 ```bash
 sudo bash -c 'bash <(curl -fsSL https://raw.githubusercontent.com/josianascanio/idempiere/<NOMBRE-DE-LA-RAMA>/provision.sh)'
