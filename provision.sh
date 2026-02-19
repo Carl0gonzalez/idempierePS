@@ -223,7 +223,7 @@ cat << EOF > "$IDEMPIERE_HOME/idempiereEnv.properties"
 #idempiere home
 IDEMPIERE_HOME=$IDEMPIERE_HOME
 #Java home
-JAVA_HOME=/usr/lib/jvm/java-17-openjdk-arm64
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 
 #Java runtime options
 IDEMPIERE_JAVA_OPTIONS=-Xms1G -Xmx1G
