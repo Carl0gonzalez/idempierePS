@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # ============================================================
-# iDempiere Provision Script
-# hecho por Josian
+# iDempiere Provision Script - Debian 13 / Temurin 17
+# hecho por Josian + ajustes
 # ============================================================
 
 # -----------------------------
@@ -24,7 +24,7 @@ if ! command -v whiptail >/dev/null 2>&1; then
 fi
 
 # -----------------------------
-# Whiptail helpers
+# Helpers
 # -----------------------------
 abort_if_cancel() {
   local code="$1"
@@ -63,6 +63,26 @@ w_checklist() {
   result=$(whiptail --title "$title" --checklist "$text" 18 90 8 "$@" 3>&1 1>&2 2>&3)
   abort_if_cancel $?
   echo "$result"
+}
+
+step() { echo -e "\n===== $* =====\n"; }
+
+ensure_adoptium_repo() {
+  if [[ ! -f /etc/apt/sources.list.d/adoptium.list ]]; then
+    step "Agregando repo Adoptium"
+    apt install -y wget apt-transport-https gpg
+    wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public \
+      | gpg --dearmor \
+      | tee /etc/apt/trusted.gpg.d/adoptium.gpg >/dev/null
+    echo "deb https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" \
+      > /etc/apt/sources.list.d/adoptium.list
+  fi
+}
+
+detect_java_home() {
+  local java_bin
+  java_bin="$(readlink -f "$(command -v java)")"
+  dirname "$(dirname "$java_bin")"
 }
 
 # ============================================================
@@ -120,12 +140,12 @@ done
 # 2) Dependencias (UI)
 # ============================================================
 DEPS="$(w_checklist "Dependencias" "Selecciona qué quieres instalar/asegurar en este servidor:" \
-  "repo_pg" "Agregar repo oficial PostgreSQL (apt.postgresql.org)" ON \
-  "base"    "git, expect, fontconfig" ON \
-  "java17"  "OpenJDK 17 headless" ON \
-  "pg15"    "PostgreSQL 15" ON \
-  "nginx"   "Nginx" ON \
-  "skip"    "NO instalar nada (solo continuar)" OFF
+  "repo_pg"  "Agregar repo oficial PostgreSQL (apt.postgresql.org)" ON \
+  "base"     "git, expect, fontconfig, unzip, wget, curl, ca-certificates" ON \
+  "java17"   "Temurin/OpenJDK 17" ON \
+  "pg15"     "PostgreSQL 15" ON \
+  "nginx"    "Nginx" ON \
+  "skip"     "NO instalar nada (solo continuar)" OFF
 )"
 
 INSTALL_ANY="yes"
@@ -134,7 +154,7 @@ if [[ "$DEPS" == *"skip"* ]]; then
 fi
 
 # ============================================================
-# 3) Instalación en consola (para no romper ENTER en Import)
+# 3) Instalación en consola
 # ============================================================
 clear
 
@@ -143,27 +163,30 @@ export ENTORNO PUERTO FOLDER DB_SERVER DB_PASS
 
 echo "Iniciando instalación..."
 
-step() { echo -e "\n===== $* =====\n"; }
-
 if [[ "$INSTALL_ANY" == "yes" ]]; then
   if [[ "$DEPS" == *"repo_pg"* ]]; then
     step "Agregando repo PostgreSQL"
+    mkdir -p /usr/share/keyrings
     wget -q -O /usr/share/keyrings/postgresql-keyring.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
     echo "deb [signed-by=/usr/share/keyrings/postgresql-keyring.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
       > /etc/apt/sources.list.d/postgresql.list
+  fi
+
+  if [[ "$DEPS" == *"java17"* ]]; then
+    ensure_adoptium_repo
   fi
 
   step "APT update"
   apt update -y
 
   if [[ "$DEPS" == *"base"* ]]; then
-    step "Instalando base (git/expect/fontconfig)"
-    apt install -y git expect fontconfig
+    step "Instalando base"
+    apt install -y git expect fontconfig unzip wget curl ca-certificates lsb-release
   fi
 
   if [[ "$DEPS" == *"java17"* ]]; then
-    step "Instalando Java 17"
-    apt install -y openjdk-17-jdk-headless
+    step "Instalando Java 17 (Temurin)"
+    apt install -y temurin-17-jdk
   fi
 
   if [[ "$DEPS" == *"pg15"* ]]; then
@@ -178,6 +201,22 @@ if [[ "$INSTALL_ANY" == "yes" ]]; then
 else
   step "Saltando instalación de dependencias"
 fi
+
+# -----------------------------
+# Verificar Java y detectar JAVA_HOME dinámico
+# -----------------------------
+if ! command -v java >/dev/null 2>&1; then
+  echo "ERROR: java no está instalado o no está en PATH."
+  exit 1
+fi
+
+JAVA_HOME_DYNAMIC="$(detect_java_home)"
+export JAVA_HOME="$JAVA_HOME_DYNAMIC"
+
+step "Java detectado"
+echo "JAVA_HOME=$JAVA_HOME"
+java -version
+javac -version
 
 # Config Postgres si existe
 if [[ -d "/etc/postgresql/15/main" ]]; then
@@ -200,21 +239,27 @@ fi
 # Install iDempiere
 step "Creando directorio $IDEMPIERE_HOME"
 mkdir -p "$IDEMPIERE_HOME"
+mkdir -p "/opt/$FOLDER"
 
 step "Descargando build.zip (si no existe)"
 if [[ ! -f "build.zip" ]]; then
   wget --progress=bar:force:noscroll -O build.zip \
-    "https://sourceforge.net/projects/idempiere/files/v12/daily-server/idempiereServer12Daily.gtk.linux.x86_64.zip"
+    "https://sourceforge.net/projects/idempiere/files/v12/daily-server/idempiereServer12Daily.gtk.linux.x86_64.zip/download"
 fi
 
 step "Extrayendo build.zip"
-jar xvf build.zip
+rm -rf idempiere.gtk.linux.x86_64
+unzip -o build.zip
 
 step "Moviendo iDempiere a $IDEMPIERE_HOME"
-mkdir -p "/opt/$FOLDER"
-mv idempiere.gtk.linux.x86_64/idempiere-server "/opt/$FOLDER" || true
-mv "/opt/$FOLDER/idempiere-server/"* "$IDEMPIERE_HOME"
-rm -rf idempiere.gtk.linux.x86_64
+if [[ -d "idempiere.gtk.linux.x86_64/idempiere-server" ]]; then
+  rm -rf "$IDEMPIERE_HOME"/*
+  mv idempiere.gtk.linux.x86_64/idempiere-server/* "$IDEMPIERE_HOME"/
+  rm -rf idempiere.gtk.linux.x86_64
+else
+  echo "ERROR: no se encontró la carpeta idempiere.gtk.linux.x86_64/idempiere-server"
+  exit 1
+fi
 
 step "Creando idempiereEnv.properties"
 cat << EOF > "$IDEMPIERE_HOME/idempiereEnv.properties"
@@ -223,7 +268,7 @@ cat << EOF > "$IDEMPIERE_HOME/idempiereEnv.properties"
 #idempiere home
 IDEMPIERE_HOME=$IDEMPIERE_HOME
 #Java home
-JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+JAVA_HOME=$JAVA_HOME
 
 #Java runtime options
 IDEMPIERE_JAVA_OPTIONS=-Xms1G -Xmx1G
@@ -260,17 +305,11 @@ ADEMPIERE_KEYSTORECODEALIAS=adempiere
 ADEMPIERE_KEYSTOREPASS=myPassword
 
 #Certificate details
-#Common name, default to host name
 ADEMPIERE_CERT_CN=localhost
-#Organization, default to the user name
 ADEMPIERE_CERT_ORG=iDempiere Bazaar
-#Organization Unit, default to 'AdempiereUser'
 ADEMPIERE_CERT_ORG_UNIT=iDempiereUser
-#town
 ADEMPIERE_CERT_LOCATION=myTown
-#state
 ADEMPIERE_CERT_STATE=CA
-#2 character country code
 ADEMPIERE_CERT_COUNTRY=US
 
 #Mail server setting
@@ -285,7 +324,6 @@ ADEMPIERE_FTP_PREFIX=my
 ADEMPIERE_FTP_USER=anonymous
 ADEMPIERE_FTP_PASSWORD=user@host.com
 EOF
-
 
 step "Ejecutando silent-setup-alt.sh"
 cd "$IDEMPIERE_HOME"
@@ -336,4 +374,4 @@ systemctl daemon-reload
 systemctl enable "$SERVICIO"
 systemctl restart "$SERVICIO"
 
-w_msg "Finalizado" "Servicio: $SERVICIO\nHome: $IDEMPIERE_HOME"
+w_msg "Finalizado" "Servicio: $SERVICIO\nHome: $IDEMPIERE_HOME\nJAVA_HOME: $JAVA_HOME"
