@@ -4,7 +4,7 @@ set -Eeuo pipefail
 # ============================================================
 # iDempiere Provision Script - Debian 13 + Oracle Remoto
 #  cancelación controlada + selección manual oracle/oracleXE
-#  Hecho por Carl0gonzalez
+#  Hecho por Carl0gonzalez + Base de Josian
 # ============================================================
 
 INSTALL_CANCELLED="no"
