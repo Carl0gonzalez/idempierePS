@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 # ============================================================
 # iDempiere Provision Script - Debian 13 + Oracle Remoto
-# v4.1 - Corregida (defaults al editar + fix w_yesno TTY)
+# v4.2 - Fix contraseñas con caracteres especiales en sqlplus
 # Hecho por Carl0gonzalez + Base de Josian
 # ============================================================
 
@@ -84,7 +84,7 @@ w_password() {
   echo "$result"
 }
 
-# FIX: w_yesno con redirección explícita al TTY para garantizar renderizado
+# FIX v4.1: w_yesno con redirección explícita al TTY
 w_yesno() {
   local title="$1" prompt="$2"
   local height="${3:-10}" width="${4:-75}"
@@ -126,7 +126,7 @@ w_checklist() {
   echo "$result"
 }
 
-# FIX: confirm_checkpoint con redirección explícita al TTY
+# FIX v4.1: confirm_checkpoint con redirección explícita al TTY
 confirm_checkpoint() {
   local title="$1" prompt="$2"
   local code=0
@@ -176,14 +176,6 @@ require_cmd() {
   fi
 }
 
-validate_port_range() {
-  local composed="$1" label="$2"
-  if ! [[ "$composed" =~ ^[0-9]+$ ]] || [[ "$composed" -gt 65535 ]]; then
-    echo "ERROR: el puerto calculado '${composed}' para ${label} es inválido (máximo 65535)."
-    exit 1
-  fi
-}
-
 check_port_free() {
   local port="$1"
   if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
@@ -193,16 +185,15 @@ check_port_free() {
 
 # ============================================================
 # Helpers Oracle
+# FIX v4.2: heredoc sin comillas simples + connect separado con
+#           password entre comillas dobles — soporta caracteres
+#           especiales: # $ & / ) @ ! en contraseñas
 # ============================================================
 
-oracle_connect_string() {
-  local user="$1" pass="$2"
-  echo "${user}/${pass}@//${DB_SERVER}:${DB_PORT}/${DB_SERVICE}"
-}
-
-oracle_sql() {
-  local conn="$1" sql="$2"
-  sqlplus -s "$conn" <<SQL
+oracle_sql_admin() {
+  local sql="$1"
+  sqlplus -s /nolog <<SQLEOF
+connect ${ORACLE_ADMIN_USER}/"${ORACLE_ADMIN_PASSWORD}"@//${DB_SERVER}:${DB_PORT}/${DB_SERVICE}
 set heading off
 set feedback off
 set verify off
@@ -212,14 +203,28 @@ set trimspool on
 whenever sqlerror exit failure
 ${sql}
 exit
-SQL
+SQLEOF
+}
+
+oracle_sql_app() {
+  local sql="$1"
+  sqlplus -s /nolog <<SQLEOF
+connect ${ORACLE_APP_USER}/"${ORACLE_APP_PASSWORD}"@//${DB_SERVER}:${DB_PORT}/${DB_SERVICE}
+set heading off
+set feedback off
+set verify off
+set pagesize 0
+set linesize 300
+set trimspool on
+whenever sqlerror exit failure
+${sql}
+exit
+SQLEOF
 }
 
 oracle_test_connection() {
-  local conn
-  conn="$(oracle_connect_string "$ORACLE_ADMIN_USER" "$ORACLE_ADMIN_PASSWORD")"
   local out rc=0
-  out="$(oracle_sql "$conn" "select 'CONN_OK' from dual;" 2>&1)" || rc=$?
+  out="$(oracle_sql_admin "select 'CONN_OK' from dual;" 2>&1)" || rc=$?
   if [[ "$rc" -ne 0 ]] || ! echo "$out" | grep -q "CONN_OK"; then
     echo "Detalle del error de conexión:"
     echo "$out"
@@ -229,11 +234,8 @@ oracle_test_connection() {
 }
 
 oracle_verify_tablespace() {
-  local conn
-  conn="$(oracle_connect_string "$ORACLE_ADMIN_USER" "$ORACLE_ADMIN_PASSWORD")"
-
   local count_data rc_data=0
-  count_data="$(oracle_sql "$conn" \
+  count_data="$(oracle_sql_admin \
     "select count(*) from dba_tablespaces where tablespace_name = upper('${ORACLE_TABLESPACE}');" \
     2>&1)" || rc_data=$?
   count_data="$(echo "$count_data" | tr -d '[:space:]')"
@@ -244,7 +246,7 @@ oracle_verify_tablespace() {
   fi
 
   local count_temp rc_temp=0
-  count_temp="$(oracle_sql "$conn" \
+  count_temp="$(oracle_sql_admin \
     "select count(*) from dba_tablespaces where tablespace_name = upper('${ORACLE_TEMP_TABLESPACE}');" \
     2>&1)" || rc_temp=$?
   count_temp="$(echo "$count_temp" | tr -d '[:space:]')"
@@ -261,16 +263,9 @@ oracle_prepare_app_user() {
   fi
 
   step "Creando o ajustando usuario Oracle ${ORACLE_APP_USER}"
-  local conn
-  conn="$(oracle_connect_string "$ORACLE_ADMIN_USER" "$ORACLE_ADMIN_PASSWORD")"
-
-  local APP_USER="${ORACLE_APP_USER}"
-  local APP_PASS="${ORACLE_APP_PASSWORD}"
-  local APP_TS="${ORACLE_TABLESPACE}"
-  local APP_TEMP_TS="${ORACLE_TEMP_TABLESPACE}"
-
   local rc=0
-  sqlplus -s "$conn" <<SQL || rc=$?
+  sqlplus -s /nolog <<SQLEOF || rc=$?
+connect ${ORACLE_ADMIN_USER}/"${ORACLE_ADMIN_PASSWORD}"@//${DB_SERVER}:${DB_PORT}/${DB_SERVICE}
 set heading off
 set feedback off
 set verify off
@@ -280,13 +275,12 @@ whenever sqlerror exit failure
 
 declare
   v_count number := 0;
-  v_user  varchar2(128) := upper('${APP_USER}');
-  v_pass  varchar2(512) := '${APP_PASS}';
-  v_ts    varchar2(128) := upper('${APP_TS}');
-  v_tts   varchar2(128) := upper('${APP_TEMP_TS}');
+  v_user  varchar2(128) := upper('${ORACLE_APP_USER}');
+  v_pass  varchar2(512) := '${ORACLE_APP_PASSWORD}';
+  v_ts    varchar2(128) := upper('${ORACLE_TABLESPACE}');
+  v_tts   varchar2(128) := upper('${ORACLE_TEMP_TABLESPACE}');
 begin
   select count(*) into v_count from dba_users where username = v_user;
-
   if v_count = 0 then
     execute immediate 'create user ' || v_user ||
       ' identified by "' || v_pass || '"' ||
@@ -305,7 +299,7 @@ begin
 end;
 /
 exit
-SQL
+SQLEOF
 
   if [[ "$rc" -ne 0 ]]; then
     echo "ERROR: falló la creación/ajuste del usuario Oracle ${ORACLE_APP_USER} (rc=$rc)."
@@ -327,7 +321,6 @@ ORACLE_APP_USER_DEFAULT="adempiere"
 ORACLE_TABLESPACE_DEFAULT=""
 ORACLE_TEMP_TABLESPACE_DEFAULT="TEMP"
 
-# Variables que acumulan lo ingresado para usarlas como default al editar
 ENTORNO=""
 PUERTO=""
 FOLDER=""
@@ -345,7 +338,6 @@ CREATE_APP_USER=""
 DB_EXISTS=""
 
 while true; do
-  # FIX: usar valor ya ingresado como default al volver a editar
   ENTORNO="$(w_input "Parámetros iDempiere" "ENTORNO (ej: idempiere, test, prod):" "${ENTORNO:-$ENTORNO_DEFAULT}")"
   PUERTO="$(w_input "Parámetros iDempiere" "PUERTO base (ej: 80, 81, 82). WEB_PORT=80\$PUERTO, SSL=84\$PUERTO:" "${PUERTO:-$PUERTO_DEFAULT}")"
   FOLDER="$(w_input "Parámetros iDempiere" "FOLDER (carpeta base en /opt, ej: sas):" "${FOLDER:-$FOLDER_DEFAULT}")"
@@ -368,7 +360,6 @@ while true; do
   ORACLE_TABLESPACE="$(w_input "Oracle remoto" "Tablespace de datos para iDempiere:" "${ORACLE_TABLESPACE:-$ORACLE_TABLESPACE_DEFAULT}")"
   ORACLE_TEMP_TABLESPACE="$(w_input "Oracle remoto" "Temporary tablespace para iDempiere:" "${ORACLE_TEMP_TABLESPACE:-$ORACLE_TEMP_TABLESPACE_DEFAULT}")"
 
-  # FIX: w_yesno ahora usa /dev/tty explícito — siempre se renderiza
   CREATE_APP_USER="$(w_yesno "Oracle remoto" "¿Crear o ajustar el usuario Oracle de aplicación (${ORACLE_APP_USER})?\n\nSí = crear/actualizar usuario\nNo = usar usuario existente sin cambios" 12 70)"
   DB_EXISTS="$(w_yesno "Base de datos" "¿El esquema de iDempiere ya existe en Oracle?\n\nSí = NO importar seed (ya está cargado)\nNo = importar seed desde cero" 12 70)"
 
@@ -394,7 +385,6 @@ while true; do
     continue
   fi
 
-  # Validar puertos compuestos
   WEB_PORT_COMPOSED="80${PUERTO}"
   SSL_PORT_COMPOSED="84${PUERTO}"
   TELNET_PORT_COMPOSED="126${PUERTO}"
@@ -505,11 +495,15 @@ else
   step "Saltando instalación de dependencias"
 fi
 
-# Verificar comandos requeridos
-require_cmd java    "Instala Java 17 antes de continuar."
-require_cmd javac   "Se requiere JDK completo, no solo JRE."
-require_cmd sqlplus "Instala Oracle Instant Client y asegura que sqlplus esté en PATH."
-require_cmd impdp   "El import de iDempiere en Oracle requiere impdp en PATH (paquete Tools de Instant Client)."
+# Verificar comandos siempre requeridos
+require_cmd java   "Instala Java 17 (Temurin) antes de continuar."
+require_cmd javac  "Se requiere JDK completo, no solo JRE."
+require_cmd sqlplus "Instala Oracle Instant Client Basic + SQL*Plus y agrega al PATH."
+
+# FIX v4.2: impdp solo se requiere si se va a importar el seed
+if [[ "$DB_EXISTS" != "Y" ]]; then
+  require_cmd impdp "Instala Oracle Instant Client Tools y agrega al PATH.\nSymlink: sudo ln -s /opt/oracle/instantclient_*/impdp /usr/local/bin/impdp"
+fi
 
 JAVA_HOME_DYNAMIC="$(detect_java_home)"
 export JAVA_HOME="$JAVA_HOME_DYNAMIC"
@@ -559,7 +553,7 @@ if getent group dba >/dev/null 2>&1; then
   step "Agregando usuario idempiere al grupo dba"
   usermod -aG dba idempiere || true
 else
-  echo "ADVERTENCIA: no existe el grupo 'dba' en este host."
+  echo "ADVERTENCIA: no existe el grupo 'dba' en este host. Continuando."
 fi
 
 # ============================================================
@@ -577,7 +571,6 @@ step "Extrayendo build.zip"
 rm -rf idempiere.gtk.linux.x86_64
 unzip -o build.zip
 
-# Detección robusta de la carpeta extraída
 EXTRACTED_DIR=""
 if [[ -d "idempiere.gtk.linux.x86_64/idempiere-server" ]]; then
   EXTRACTED_DIR="idempiere.gtk.linux.x86_64/idempiere-server"
@@ -585,8 +578,7 @@ else
   EXTRACTED_DIR="$(find . -maxdepth 2 -type d -name "idempiere-server" 2>/dev/null | head -1)"
   if [[ -z "$EXTRACTED_DIR" ]]; then
     echo "ERROR: no se encontró carpeta 'idempiere-server' después de extraer el ZIP."
-    echo "Contenido actual:"
-    ls -la
+    echo "Contenido actual:"; ls -la
     exit 1
   fi
 fi
@@ -602,7 +594,7 @@ if getent group dba >/dev/null 2>&1; then
   chmod -R g+rwX "$IDEMPIERE_HOME" || true
 fi
 
-# Detectar scripts de setup disponibles
+# Detectar scripts de setup
 SETUP_SCRIPT=""
 if [[ -f "$IDEMPIERE_HOME/silent-setup-alt.sh" ]]; then
   SETUP_SCRIPT="$IDEMPIERE_HOME/silent-setup-alt.sh"
@@ -610,7 +602,6 @@ elif [[ -f "$IDEMPIERE_HOME/utils/RUN_SilentSetup.sh" ]]; then
   SETUP_SCRIPT="$IDEMPIERE_HOME/utils/RUN_SilentSetup.sh"
 else
   echo "ERROR: no se encontró script de setup silencioso."
-  echo "Scripts disponibles en $IDEMPIERE_HOME:"
   find "$IDEMPIERE_HOME" -maxdepth 2 -name "*.sh" | sort
   exit 1
 fi
@@ -628,7 +619,7 @@ step "Creando idempiereEnv.properties"
 KEYSTORE_PASS="$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9' | head -c 20)"
 
 cat <<EOF > "$IDEMPIERE_HOME/idempiereEnv.properties"
-# idempiereEnv.properties - generado automáticamente por provision.sh v4.1
+# idempiereEnv.properties - generado automáticamente por provision.sh v4.2
 
 IDEMPIERE_HOME=$IDEMPIERE_HOME
 JAVA_HOME=$JAVA_HOME
@@ -723,7 +714,6 @@ if [[ ! -f "$IDEMPIERE_HOME/.ssh/idempiere" ]]; then
   chmod 644 "$IDEMPIERE_HOME/.ssh/authorized_keys"
 fi
 
-# Aplicar chown al final de todo el despliegue de archivos
 chown -R idempiere:idempiere "$IDEMPIERE_HOME"
 
 # ============================================================
