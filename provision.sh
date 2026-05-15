@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 # ============================================================
 # iDempiere Provision Script - Debian 13 + Oracle Remoto
-# v4.2 - Fix contraseñas con caracteres especiales en sqlplus
+# v4.3 - Fix: DB_TYPE mayuscula + DB_SYSTEM es usuario no clave
 # Hecho por Carl0gonzalez + Base de Josian
 # ============================================================
 
@@ -24,9 +24,9 @@ cleanup() {
   if [[ "$INSTALL_CANCELLED" == "yes" ]]; then
     echo
     echo "============================================================"
-    echo " Instalación cancelada por el usuario."
-    echo " Último paso: ${CURRENT_STEP}"
-    echo " NOTA: no se hace rollback automático de cambios ya aplicados."
+    echo " Instalacion cancelada por el usuario."
+    echo " Ultimo paso: ${CURRENT_STEP}"
+    echo " NOTA: no se hace rollback automatico de cambios ya aplicados."
     echo "============================================================"
     echo
   fi
@@ -36,7 +36,7 @@ cleanup() {
 cancel_install() {
   INSTALL_CANCELLED="yes"
   echo
-  echo "Se recibió señal de cancelación. Saliendo de forma controlada..."
+  echo "Se recibio senal de cancelacion. Saliendo de forma controlada..."
   exit 130
 }
 
@@ -44,7 +44,7 @@ trap cleanup EXIT
 trap cancel_install INT TERM
 
 # ============================================================
-# Helpers básicos
+# Helpers basicos
 # ============================================================
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Este script debe ejecutarse como root. Usa: sudo bash $0"
@@ -52,7 +52,7 @@ if [[ "${EUID}" -ne 0 ]]; then
 fi
 
 if ! command -v whiptail >/dev/null 2>&1; then
-  echo "Instalando dependencias mínimas..."
+  echo "Instalando dependencias minimas..."
   apt update -qq
   apt install -y whiptail
 fi
@@ -84,7 +84,6 @@ w_password() {
   echo "$result"
 }
 
-# FIX v4.1: w_yesno con redirección explícita al TTY
 w_yesno() {
   local title="$1" prompt="$2"
   local height="${3:-10}" width="${4:-75}"
@@ -126,7 +125,6 @@ w_checklist() {
   echo "$result"
 }
 
-# FIX v4.1: confirm_checkpoint con redirección explícita al TTY
 confirm_checkpoint() {
   local title="$1" prompt="$2"
   local code=0
@@ -179,15 +177,12 @@ require_cmd() {
 check_port_free() {
   local port="$1"
   if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
-    echo "ADVERTENCIA: el puerto ${port} ya está en uso. Revisa antes de continuar."
+    echo "ADVERTENCIA: el puerto ${port} ya esta en uso. Revisa antes de continuar."
   fi
 }
 
 # ============================================================
 # Helpers Oracle
-# FIX v4.2: heredoc sin comillas simples + connect separado con
-#           password entre comillas dobles — soporta caracteres
-#           especiales: # $ & / ) @ ! en contraseñas
 # ============================================================
 
 oracle_sql_admin() {
@@ -226,7 +221,7 @@ oracle_test_connection() {
   local out rc=0
   out="$(oracle_sql_admin "select 'CONN_OK' from dual;" 2>&1)" || rc=$?
   if [[ "$rc" -ne 0 ]] || ! echo "$out" | grep -q "CONN_OK"; then
-    echo "Detalle del error de conexión:"
+    echo "Detalle del error de conexion:"
     echo "$out"
     return 1
   fi
@@ -240,8 +235,7 @@ oracle_verify_tablespace() {
     2>&1)" || rc_data=$?
   count_data="$(echo "$count_data" | tr -d '[:space:]')"
   if [[ "$rc_data" -ne 0 || "$count_data" != "1" ]]; then
-    echo "ERROR: el tablespace de datos '${ORACLE_TABLESPACE}' no existe o no es accesible."
-    echo "Resultado raw: $count_data"
+    echo "ERROR: el tablespace '${ORACLE_TABLESPACE}' no existe o no es accesible."
     exit 1
   fi
 
@@ -251,14 +245,14 @@ oracle_verify_tablespace() {
     2>&1)" || rc_temp=$?
   count_temp="$(echo "$count_temp" | tr -d '[:space:]')"
   if [[ "$rc_temp" -ne 0 || "$count_temp" != "1" ]]; then
-    echo "ERROR: el temporary tablespace '${ORACLE_TEMP_TABLESPACE}' no existe o no es accesible."
+    echo "ERROR: el temporary tablespace '${ORACLE_TEMP_TABLESPACE}' no existe."
     exit 1
   fi
 }
 
 oracle_prepare_app_user() {
   if [[ "${CREATE_APP_USER}" != "Y" ]]; then
-    step "Saltando creación/ajuste del usuario Oracle de aplicación"
+    step "Saltando creacion/ajuste del usuario Oracle de aplicacion"
     return
   fi
 
@@ -302,13 +296,13 @@ exit
 SQLEOF
 
   if [[ "$rc" -ne 0 ]]; then
-    echo "ERROR: falló la creación/ajuste del usuario Oracle ${ORACLE_APP_USER} (rc=$rc)."
+    echo "ERROR: fallo la creacion/ajuste del usuario Oracle ${ORACLE_APP_USER} (rc=$rc)."
     exit 1
   fi
 }
 
 # ============================================================
-# 1) Parámetros
+# 1) Parametros
 # ============================================================
 ENTORNO_DEFAULT="idempiere"
 PUERTO_DEFAULT="80"
@@ -338,12 +332,12 @@ CREATE_APP_USER=""
 DB_EXISTS=""
 
 while true; do
-  ENTORNO="$(w_input "Parámetros iDempiere" "ENTORNO (ej: idempiere, test, prod):" "${ENTORNO:-$ENTORNO_DEFAULT}")"
-  PUERTO="$(w_input "Parámetros iDempiere" "PUERTO base (ej: 80, 81, 82). WEB_PORT=80\$PUERTO, SSL=84\$PUERTO:" "${PUERTO:-$PUERTO_DEFAULT}")"
-  FOLDER="$(w_input "Parámetros iDempiere" "FOLDER (carpeta base en /opt, ej: sas):" "${FOLDER:-$FOLDER_DEFAULT}")"
+  ENTORNO="$(w_input "Parametros iDempiere" "ENTORNO (ej: idempiere, test, prod):" "${ENTORNO:-$ENTORNO_DEFAULT}")"
+  PUERTO="$(w_input "Parametros iDempiere" "PUERTO base (ej: 80, 81, 82). WEB_PORT=80\$PUERTO, SSL=84\$PUERTO:" "${PUERTO:-$PUERTO_DEFAULT}")"
+  FOLDER="$(w_input "Parametros iDempiere" "FOLDER (carpeta base en /opt, ej: sas):" "${FOLDER:-$FOLDER_DEFAULT}")"
 
   ORACLE_DB_TYPE="$(w_menu "Tipo de base de datos" "Selecciona el tipo de Oracle REMOTO:" \
-    "oracle"   "Oracle estándar / Enterprise / Standard / PDB" \
+    "oracle"   "Oracle estandar / Enterprise / Standard / PDB" \
     "oracleXE" "Oracle Express Edition (XE)"
   )"
 
@@ -351,31 +345,31 @@ while true; do
   DB_PORT="$(w_input "Oracle remoto" "DB_PORT del listener Oracle remoto:" "${DB_PORT:-$DB_PORT_DEFAULT}")"
   DB_SERVICE="$(w_input "Oracle remoto" "DB_SERVICE / Service Name / PDB (ej: xepdb1, ORCL):" "${DB_SERVICE:-$DB_SERVICE_DEFAULT}")"
 
-  ORACLE_ADMIN_USER="$(w_input "Oracle remoto" "Usuario administrador Oracle remoto (ej: system):" "${ORACLE_ADMIN_USER:-$ORACLE_ADMIN_USER_DEFAULT}")"
-  ORACLE_ADMIN_PASSWORD="$(w_password "Oracle remoto" "Password del usuario administrador Oracle (vuelve a ingresar si editas):")"
+  ORACLE_ADMIN_USER="$(w_input "Oracle remoto" "Usuario administrador Oracle remoto (ej: system, BPATRIMONIALES):" "${ORACLE_ADMIN_USER:-$ORACLE_ADMIN_USER_DEFAULT}")"
+  ORACLE_ADMIN_PASSWORD="$(w_password "Oracle remoto" "Password del usuario administrador Oracle:")"
 
-  ORACLE_APP_USER="$(w_input "Oracle remoto" "Usuario de aplicación iDempiere en Oracle remoto:" "${ORACLE_APP_USER:-$ORACLE_APP_USER_DEFAULT}")"
-  ORACLE_APP_PASSWORD="$(w_password "Oracle remoto" "Password del usuario de aplicación ${ORACLE_APP_USER} (vuelve a ingresar si editas):")"
+  ORACLE_APP_USER="$(w_input "Oracle remoto" "Usuario de aplicacion iDempiere en Oracle remoto:" "${ORACLE_APP_USER:-$ORACLE_APP_USER_DEFAULT}")"
+  ORACLE_APP_PASSWORD="$(w_password "Oracle remoto" "Password del usuario de aplicacion ${ORACLE_APP_USER}:")"
 
   ORACLE_TABLESPACE="$(w_input "Oracle remoto" "Tablespace de datos para iDempiere:" "${ORACLE_TABLESPACE:-$ORACLE_TABLESPACE_DEFAULT}")"
   ORACLE_TEMP_TABLESPACE="$(w_input "Oracle remoto" "Temporary tablespace para iDempiere:" "${ORACLE_TEMP_TABLESPACE:-$ORACLE_TEMP_TABLESPACE_DEFAULT}")"
 
-  CREATE_APP_USER="$(w_yesno "Oracle remoto" "¿Crear o ajustar el usuario Oracle de aplicación (${ORACLE_APP_USER})?\n\nSí = crear/actualizar usuario\nNo = usar usuario existente sin cambios" 12 70)"
-  DB_EXISTS="$(w_yesno "Base de datos" "¿El esquema de iDempiere ya existe en Oracle?\n\nSí = NO importar seed (ya está cargado)\nNo = importar seed desde cero" 12 70)"
+  CREATE_APP_USER="$(w_yesno "Oracle remoto" "Crear o ajustar el usuario Oracle de aplicacion (${ORACLE_APP_USER})?\n\nSi = crear/actualizar usuario\nNo = usar usuario existente sin cambios" 12 70)"
+  DB_EXISTS="$(w_yesno "Base de datos" "El esquema de iDempiere ya existe en Oracle?\n\nSi = NO importar seed (ya esta cargado)\nNo = importar seed desde cero" 12 70)"
 
   # Validaciones
   if ! [[ "$PUERTO" =~ ^[0-9]+$ ]]; then
-    w_msg "Error" "PUERTO debe ser numérico."
+    w_msg "Error" "PUERTO debe ser numerico."
     continue
   fi
 
   if ! [[ "$DB_PORT" =~ ^[0-9]+$ ]]; then
-    w_msg "Error" "DB_PORT debe ser numérico."
+    w_msg "Error" "DB_PORT debe ser numerico."
     continue
   fi
 
   if [[ -z "${ORACLE_ADMIN_PASSWORD:-}" || -z "${ORACLE_APP_PASSWORD:-}" ]]; then
-    w_msg "Error" "Las contraseñas de Oracle no pueden estar vacías."
+    w_msg "Error" "Las contrasenas de Oracle no pueden estar vacias."
     continue
   fi
 
@@ -392,11 +386,11 @@ while true; do
   if ! [[ "$WEB_PORT_COMPOSED" =~ ^[0-9]+$ ]] || [[ "$WEB_PORT_COMPOSED" -gt 65535 ]] || \
      ! [[ "$SSL_PORT_COMPOSED"  =~ ^[0-9]+$ ]] || [[ "$SSL_PORT_COMPOSED"  -gt 65535 ]] || \
      ! [[ "$TELNET_PORT_COMPOSED" =~ ^[0-9]+$ ]] || [[ "$TELNET_PORT_COMPOSED" -gt 65535 ]]; then
-    w_msg "Error" "El PUERTO '${PUERTO}' genera puertos inválidos:\nWEB=${WEB_PORT_COMPOSED}\nSSL=${SSL_PORT_COMPOSED}\nTELNET=${TELNET_PORT_COMPOSED}\n\nUsa un valor más corto (ej: 80, 81, 82)."
+    w_msg "Error" "El PUERTO '${PUERTO}' genera puertos invalidos:\nWEB=${WEB_PORT_COMPOSED}\nSSL=${SSL_PORT_COMPOSED}\nTELNET=${TELNET_PORT_COMPOSED}\n\nUsa un valor mas corto (ej: 80, 81, 82)."
     continue
   fi
 
-  SUMMARY="Se usarán estos valores:
+  SUMMARY="Se usaran estos valores:
 
 ENTORNO:            $ENTORNO
 PUERTO:             $PUERTO
@@ -417,11 +411,11 @@ TEMP TABLESPACE:    $ORACLE_TEMP_TABLESPACE
 CREATE_APP_USER:    $CREATE_APP_USER
 DB_EXISTS:          $DB_EXISTS
 "
-  w_msg "Resumen de configuración" "$SUMMARY"
+  w_msg "Resumen de configuracion" "$SUMMARY"
 
-  ACTION=$(whiptail --title "Acción" --menu "¿Todo correcto?" 14 65 3 \
-    "1" "Continuar con la instalación" \
-    "2" "Editar parámetros (mantiene valores)" \
+  ACTION=$(whiptail --title "Accion" --menu "Todo correcto?" 14 65 3 \
+    "1" "Continuar con la instalacion" \
+    "2" "Editar parametros (mantiene valores)" \
     "3" "Cancelar" \
     3>&1 1>&2 2>&3)
   abort_if_cancel $?
@@ -436,7 +430,7 @@ done
 # ============================================================
 # 2) Dependencias
 # ============================================================
-DEPS="$(w_checklist "Dependencias" "Selecciona qué instalar/asegurar en este servidor Debian:" \
+DEPS="$(w_checklist "Dependencias" "Selecciona que instalar/asegurar en este servidor Debian:" \
   "base"   "git, expect, fontconfig, unzip, wget, curl, ca-certificates, lsb-release" ON \
   "java17" "Temurin/OpenJDK 17" ON \
   "nginx"  "Nginx" OFF \
@@ -446,10 +440,10 @@ DEPS="$(w_checklist "Dependencias" "Selecciona qué instalar/asegurar en este se
 INSTALL_ANY="yes"
 [[ "$DEPS" == *"skip"* ]] && INSTALL_ANY="no"
 
-confirm_checkpoint "Confirmación final" "Se iniciará la instalación de iDempiere con Oracle remoto.\n\nPodrás cancelar con Ctrl+C en cualquier momento.\n\n¿Deseas continuar?"
+confirm_checkpoint "Confirmacion final" "Se iniciara la instalacion de iDempiere con Oracle remoto.\n\nPodras cancelar con Ctrl+C en cualquier momento.\n\nDeseas continuar?"
 
 # ============================================================
-# 3) Instalación en consola
+# 3) Instalacion en consola
 # ============================================================
 clear
 export IDEMPIERE_HOME="/opt/${FOLDER}/${PUERTO}_${ENTORNO}"
@@ -457,7 +451,7 @@ export ENTORNO PUERTO FOLDER
 CREATED_IDEMPIERE_HOME="$IDEMPIERE_HOME"
 
 echo "======================================================"
-echo " Iniciando instalación iDempiere v12"
+echo " Iniciando instalacion iDempiere v12"
 echo " Oracle remoto:  ${DB_SERVER}:${DB_PORT}/${DB_SERVICE}"
 echo " Tipo de base:   ${ORACLE_DB_TYPE}"
 echo " iDempiere home: ${IDEMPIERE_HOME}"
@@ -468,7 +462,7 @@ echo " Ctrl+C cancela en cualquier momento"
 echo "======================================================"
 
 if [[ "$INSTALL_ANY" == "yes" ]]; then
-  confirm_checkpoint "Checkpoint 1/6" "Se instalarán/asegurarán dependencias del sistema.\n\n¿Continuar?"
+  confirm_checkpoint "Checkpoint 1/6" "Se instalaran/aseguraran dependencias del sistema.\n\nContinuar?"
 
   if [[ "$DEPS" == *"java17"* ]]; then
     ensure_adoptium_repo
@@ -492,15 +486,13 @@ if [[ "$INSTALL_ANY" == "yes" ]]; then
     apt install -y nginx
   fi
 else
-  step "Saltando instalación de dependencias"
+  step "Saltando instalacion de dependencias"
 fi
 
-# Verificar comandos siempre requeridos
 require_cmd java   "Instala Java 17 (Temurin) antes de continuar."
 require_cmd javac  "Se requiere JDK completo, no solo JRE."
 require_cmd sqlplus "Instala Oracle Instant Client Basic + SQL*Plus y agrega al PATH."
 
-# FIX v4.2: impdp solo se requiere si se va a importar el seed
 if [[ "$DB_EXISTS" != "Y" ]]; then
   require_cmd impdp "Instala Oracle Instant Client Tools y agrega al PATH.\nSymlink: sudo ln -s /opt/oracle/instantclient_*/impdp /usr/local/bin/impdp"
 fi
@@ -517,28 +509,28 @@ check_port_free "$WEB_PORT_COMPOSED"
 check_port_free "$SSL_PORT_COMPOSED"
 check_port_free "$TELNET_PORT_COMPOSED"
 
-confirm_checkpoint "Checkpoint 2/6" "Se validará la conexión con Oracle remoto y los tablespaces.\n\n¿Continuar?"
+confirm_checkpoint "Checkpoint 2/6" "Se validara la conexion con Oracle remoto y los tablespaces.\n\nContinuar?"
 
-step "Validando conexión Oracle remoto"
+step "Validando conexion Oracle remoto"
 if ! oracle_test_connection; then
   echo "ERROR: no se pudo conectar a Oracle remoto."
   echo "Verifica: host, puerto, service name y credenciales."
   exit 1
 fi
-echo "Conexión Oracle: OK"
+echo "Conexion Oracle: OK"
 
 step "Validando tablespaces en Oracle remoto"
 oracle_verify_tablespace
 echo "Tablespaces: OK"
 
-confirm_checkpoint "Checkpoint 3/6" "Se procederá con la creación/ajuste del usuario Oracle de aplicación.\n\n¿Continuar?"
-step "Preparando usuario de aplicación Oracle"
+confirm_checkpoint "Checkpoint 3/6" "Se procedera con la creacion/ajuste del usuario Oracle de aplicacion.\n\nContinuar?"
+step "Preparando usuario de aplicacion Oracle"
 oracle_prepare_app_user
 
 # ============================================================
 # 4) Usuario OS y estructura de directorios
 # ============================================================
-confirm_checkpoint "Checkpoint 4/6" "Se crearán directorios locales y el usuario del sistema para iDempiere.\n\n¿Continuar?"
+confirm_checkpoint "Checkpoint 4/6" "Se crearan directorios locales y el usuario del sistema para iDempiere.\n\nContinuar?"
 
 step "Creando directorio $IDEMPIERE_HOME"
 mkdir -p "$IDEMPIERE_HOME"
@@ -559,7 +551,7 @@ fi
 # ============================================================
 # 5) Descargar e instalar iDempiere
 # ============================================================
-confirm_checkpoint "Checkpoint 5/6" "Se descargará y desplegará iDempiere en este servidor.\n\n¿Continuar?"
+confirm_checkpoint "Checkpoint 5/6" "Se descargara y desplegara iDempiere en este servidor.\n\nContinuar?"
 
 step "Descargando build.zip (si no existe)"
 if [[ ! -f "build.zip" ]]; then
@@ -577,8 +569,8 @@ if [[ -d "idempiere.gtk.linux.x86_64/idempiere-server" ]]; then
 else
   EXTRACTED_DIR="$(find . -maxdepth 2 -type d -name "idempiere-server" 2>/dev/null | head -1)"
   if [[ -z "$EXTRACTED_DIR" ]]; then
-    echo "ERROR: no se encontró carpeta 'idempiere-server' después de extraer el ZIP."
-    echo "Contenido actual:"; ls -la
+    echo "ERROR: no se encontro carpeta 'idempiere-server' despues de extraer el ZIP."
+    ls -la
     exit 1
   fi
 fi
@@ -601,7 +593,7 @@ if [[ -f "$IDEMPIERE_HOME/silent-setup-alt.sh" ]]; then
 elif [[ -f "$IDEMPIERE_HOME/utils/RUN_SilentSetup.sh" ]]; then
   SETUP_SCRIPT="$IDEMPIERE_HOME/utils/RUN_SilentSetup.sh"
 else
-  echo "ERROR: no se encontró script de setup silencioso."
+  echo "ERROR: no se encontro script de setup silencioso."
   find "$IDEMPIERE_HOME" -maxdepth 2 -name "*.sh" | sort
   exit 1
 fi
@@ -612,34 +604,70 @@ if [[ -f "$IDEMPIERE_HOME/sign-database-build-alt.sh" ]]; then
 elif [[ -f "$IDEMPIERE_HOME/utils/sign-database-build.sh" ]]; then
   SIGN_SCRIPT="$IDEMPIERE_HOME/utils/sign-database-build.sh"
 else
-  echo "ADVERTENCIA: no se encontró script de firma de base. Se omitirá."
+  echo "ADVERTENCIA: no se encontro script de firma de base. Se omitira."
 fi
+
+# ============================================================
+# FIX v4.3 - Generacion de idempiereEnv.properties
+#
+# CAMBIOS respecto a v4.2:
+#
+# 1. ADEMPIERE_DB_TYPE: el menu devuelve "oracle" en minuscula pero
+#    iDempiere valida internamente "Oracle" con O mayuscula.
+#    Se normaliza con ${ORACLE_DB_TYPE^} (mayuscula inicial en bash).
+#
+# 2. ADEMPIERE_DB_SYSTEM: en v4.2 se asignaba $ORACLE_ADMIN_PASSWORD
+#    (la CONTRASENA). Este campo espera el NOMBRE de usuario DBA.
+#    Corregido a $ORACLE_ADMIN_USER.
+#
+# 3. Se agrega ADEMPIERE_DB_SYSTEM_PASS con $ORACLE_ADMIN_PASSWORD
+#    para separar usuario y contrasena del admin correctamente.
+# ============================================================
 
 step "Creando idempiereEnv.properties"
 KEYSTORE_PASS="$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9' | head -c 20)"
 
+# Normalizar tipo: "oracle" -> "Oracle", "oracleXE" -> "OracleXE"
+# iDempiere acepta "Oracle" y "OracleXE" (primera letra mayuscula)
+ORACLE_DB_TYPE_NORM="${ORACLE_DB_TYPE^}"
+
 cat <<EOF > "$IDEMPIERE_HOME/idempiereEnv.properties"
-# idempiereEnv.properties - generado automáticamente por provision.sh v4.2
+# idempiereEnv.properties - generado automaticamente por provision.sh v4.3
+# v4.3 corrige:
+#   - ADEMPIERE_DB_TYPE ahora usa mayuscula inicial (Oracle, no oracle)
+#   - ADEMPIERE_DB_SYSTEM ahora es el NOMBRE del usuario DBA (no la contrasena)
+#   - Se agrega ADEMPIERE_DB_SYSTEM_PASS para la contrasena del DBA
 
 IDEMPIERE_HOME=$IDEMPIERE_HOME
 JAVA_HOME=$JAVA_HOME
 IDEMPIERE_JAVA_OPTIONS=-Xms1G -Xmx1G
 
-ADEMPIERE_DB_TYPE=$ORACLE_DB_TYPE
+# -- Base de datos --
+# ADEMPIERE_DB_TYPE: debe ser exactamente "Oracle" o "OracleXE" (mayuscula inicial)
+ADEMPIERE_DB_TYPE=$ORACLE_DB_TYPE_NORM
 ADEMPIERE_DB_EXISTS=$DB_EXISTS
-ADEMPIERE_DB_PATH=$ORACLE_DB_TYPE
+ADEMPIERE_DB_PATH=$ORACLE_DB_TYPE_NORM
 ADEMPIERE_DB_SERVER=$DB_SERVER
 ADEMPIERE_DB_PORT=$DB_PORT
 ADEMPIERE_DB_NAME=$DB_SERVICE
-ADEMPIERE_DB_SYSTEM=$ORACLE_ADMIN_PASSWORD
+
+# -- Usuario DBA de Oracle (para la prueba administrativa del setup) --
+# ADEMPIERE_DB_SYSTEM = NOMBRE del usuario DBA (ej: system, BPATRIMONIALES)
+# ADEMPIERE_DB_SYSTEM_PASS = contrasena del usuario DBA
+ADEMPIERE_DB_SYSTEM=$ORACLE_ADMIN_USER
+ADEMPIERE_DB_SYSTEM_PASS=$ORACLE_ADMIN_PASSWORD
+
+# -- Usuario de la aplicacion iDempiere --
 ADEMPIERE_DB_USER=$ORACLE_APP_USER
 ADEMPIERE_DB_PASSWORD=$ORACLE_APP_PASSWORD
 
+# -- Servidor de aplicaciones --
 ADEMPIERE_APPS_SERVER=localhost
 ADEMPIERE_WEB_ALIAS=localhost
 ADEMPIERE_WEB_PORT=$WEB_PORT_COMPOSED
 ADEMPIERE_SSL_PORT=$SSL_PORT_COMPOSED
 
+# -- Keystore / Certificado --
 ADEMPIERE_KEYSTORE=$IDEMPIERE_HOME/keystore/myKeystore
 ADEMPIERE_KEYSTOREWEBALIAS=adempiere
 ADEMPIERE_KEYSTORECODEALIAS=adempiere
@@ -667,8 +695,14 @@ echo ""
 echo ">>> KEYSTORE_PASS generado: $KEYSTORE_PASS"
 echo ">>> Guarda este valor en un lugar seguro."
 echo ""
+echo ">>> idempiereEnv.properties generado. Campos criticos:"
+echo "    ADEMPIERE_DB_TYPE       = $ORACLE_DB_TYPE_NORM"
+echo "    ADEMPIERE_DB_SYSTEM     = $ORACLE_ADMIN_USER   (nombre de usuario DBA)"
+echo "    ADEMPIERE_DB_SYSTEM_PASS= [oculta]"
+echo "    ADEMPIERE_DB_USER       = $ORACLE_APP_USER"
+echo ""
 
-confirm_checkpoint "Checkpoint 6/6" "Se ejecutará el setup silencioso, el import de base (si aplica) y la sincronización.\n\n¿Continuar?"
+confirm_checkpoint "Checkpoint 6/6" "Se ejecutara el setup silencioso, el import de base (si aplica) y la sincronizacion.\n\nContinuar?"
 
 step "Ejecutando setup silencioso: $(basename $SETUP_SCRIPT)"
 cd "$IDEMPIERE_HOME"
@@ -680,11 +714,11 @@ if [[ "$DB_EXISTS" != "Y" ]]; then
     cd "$IDEMPIERE_HOME/utils"
     bash RUN_ImportIdempiere.sh
   else
-    echo "ERROR: no se encontró utils/RUN_ImportIdempiere.sh"
+    echo "ERROR: no se encontro utils/RUN_ImportIdempiere.sh"
     exit 1
   fi
 else
-  step "Saltando import (DB_EXISTS=Y — esquema ya existe en Oracle)"
+  step "Saltando import (DB_EXISTS=Y - esquema ya existe en Oracle)"
 fi
 
 step "Sync DB (RUN_SyncDB.sh)"
@@ -692,7 +726,7 @@ if [[ -f "$IDEMPIERE_HOME/utils/RUN_SyncDB.sh" ]]; then
   cd "$IDEMPIERE_HOME/utils"
   sh RUN_SyncDB.sh
 else
-  echo "ADVERTENCIA: no se encontró utils/RUN_SyncDB.sh — omitiendo sync."
+  echo "ADVERTENCIA: no se encontro utils/RUN_SyncDB.sh - omitiendo sync."
 fi
 
 if [[ -n "$SIGN_SCRIPT" ]]; then
@@ -726,7 +760,7 @@ step "Creando servicio: $SERVICIO"
 
 INIT_SCRIPT_SRC="$IDEMPIERE_HOME/utils/unix/idempiere_Debian.sh"
 if [[ ! -f "$INIT_SCRIPT_SRC" ]]; then
-  echo "ERROR: no se encontró el script init $INIT_SCRIPT_SRC"
+  echo "ERROR: no se encontro el script init $INIT_SCRIPT_SRC"
   exit 1
 fi
 
@@ -744,15 +778,16 @@ systemctl daemon-reload
 systemctl enable "$SERVICIO"
 systemctl restart "$SERVICIO"
 
-w_msg "Instalación completada ✓" "Servicio:      $SERVICIO
+w_msg "Instalacion completada" "Servicio:      $SERVICIO
 Home:          $IDEMPIERE_HOME
 JAVA_HOME:     $JAVA_HOME
-DB_TYPE:       $ORACLE_DB_TYPE
+DB_TYPE:       $ORACLE_DB_TYPE_NORM
 DB_SERVER:     $DB_SERVER:$DB_PORT/$DB_SERVICE
-APP_USER:      $ORACLE_APP_USER
+ADMIN USER:    $ORACLE_ADMIN_USER
+APP USER:      $ORACLE_APP_USER
 WEB_PORT:      $WEB_PORT_COMPOSED
 SSL_PORT:      $SSL_PORT_COMPOSED
 TELNET_PORT:   $TELNET_PORT_COMPOSED
 
 KEYSTORE_PASS fue mostrado en consola.
-Guárdalo en un lugar seguro."
+Guardalo en un lugar seguro."
