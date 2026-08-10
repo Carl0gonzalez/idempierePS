@@ -217,12 +217,56 @@ exit
 SQLEOF
 }
 
-oracle_test_connection() {
+oracle_test_admin_connection() {
   local out rc=0
   out="$(oracle_sql_admin "select 'CONN_OK' from dual;" 2>&1)" || rc=$?
   if [[ "$rc" -ne 0 ]] || ! echo "$out" | grep -q "CONN_OK"; then
     echo "Detalle del error de conexion:"
     echo "$out"
+    return 1
+  fi
+  return 0
+}
+
+w_yesno_default_no() {
+  local title="$1" prompt="$2"
+  local height="${3:-10}" width="${4:-75}"
+  local code=0
+  whiptail --title "$title" --defaultno --yesno "$prompt" "$height" "$width" \
+    >/dev/tty 2>/dev/tty </dev/tty || code=$?
+  if [[ "$code" -eq 0 ]]; then
+    echo "Y"
+  elif [[ "$code" -eq 1 ]]; then
+    echo "N"
+  else
+    INSTALL_CANCELLED="yes"
+    echo "Cancelado por el usuario."
+    exit 0
+  fi
+}
+
+oracle_test_app_connection() {
+  local out rc=0
+  out="$(oracle_sql_app "select 'CONN_OK' from dual;" 2>&1)" || rc=$?
+  if [[ "$rc" -ne 0 ]] || ! echo "$out" | grep -q "CONN_OK"; then
+    echo "Detalle del error de conexion del usuario de aplicacion:"
+    echo "$out"
+    return 1
+  fi
+  return 0
+}
+
+# Para DB_EXISTS=Y no se requieren privilegios DBA: se valida que el usuario
+# configurado realmente sea un esquema iDempiere ya cargado.
+oracle_verify_existing_idempiere_schema() {
+  local count rc=0
+  count="$(oracle_sql_app \
+    "select count(*) from user_tables where table_name in ('AD_SYSTEM','AD_CLIENT','AD_TABLE','AD_COLUMN');" \
+    2>&1)" || rc=$?
+  count="$(echo "$count" | tr -d '[:space:]')"
+  if [[ "$rc" -ne 0 ]] || ! [[ "$count" =~ ^[0-9]+$ ]] || [[ "$count" -ne 4 ]]; then
+    echo "ERROR: ${ORACLE_APP_USER} no parece contener un esquema iDempiere completo."
+    echo "Se esperaban AD_SYSTEM, AD_CLIENT, AD_TABLE y AD_COLUMN; encontrados: ${count:-0}."
     return 1
   fi
   return 0
@@ -330,6 +374,7 @@ ORACLE_TABLESPACE=""
 ORACLE_TEMP_TABLESPACE=""
 CREATE_APP_USER=""
 DB_EXISTS=""
+RUN_SYNCDB=""
 
 while true; do
   ENTORNO="$(w_input "Parametros iDempiere" "ENTORNO (ej: idempiere, test, prod):" "${ENTORNO:-$ENTORNO_DEFAULT}")"
@@ -345,17 +390,28 @@ while true; do
   DB_PORT="$(w_input "Oracle remoto" "DB_PORT del listener Oracle remoto:" "${DB_PORT:-$DB_PORT_DEFAULT}")"
   DB_SERVICE="$(w_input "Oracle remoto" "DB_SERVICE / Service Name / PDB (ej: xepdb1, ORCL):" "${DB_SERVICE:-$DB_SERVICE_DEFAULT}")"
 
-  ORACLE_ADMIN_USER="$(w_input "Oracle remoto" "Usuario administrador Oracle remoto (ej: system, BPATRIMONIALES):" "${ORACLE_ADMIN_USER:-$ORACLE_ADMIN_USER_DEFAULT}")"
-  ORACLE_ADMIN_PASSWORD="$(w_password "Oracle remoto" "Password del usuario administrador Oracle:")"
+  DB_EXISTS="$(w_yesno "Base de datos" "El esquema de iDempiere ya existe en Oracle?\n\nSi = conectar a un esquema existente; no se importara seed, no se creara usuario y no se modificaran tablespaces.\nNo = preparar usuario e importar seed desde cero" 14 78)"
 
-  ORACLE_APP_USER="$(w_input "Oracle remoto" "Usuario de aplicacion iDempiere en Oracle remoto:" "${ORACLE_APP_USER:-$ORACLE_APP_USER_DEFAULT}")"
-  ORACLE_APP_PASSWORD="$(w_password "Oracle remoto" "Password del usuario de aplicacion ${ORACLE_APP_USER}:")"
+  # Un esquema existente no requiere ni debe pedir una cuenta DBA. Esto permite
+  # usar el mismo usuario de aplicacion con privilegios minimos.
+  if [[ "$DB_EXISTS" == "Y" ]]; then
+    ORACLE_APP_USER="$(w_input "Oracle remoto" "Usuario del esquema iDempiere existente:" "${ORACLE_APP_USER:-$ORACLE_APP_USER_DEFAULT}")"
+    ORACLE_APP_PASSWORD="$(w_password "Oracle remoto" "Password del usuario ${ORACLE_APP_USER}:")"
+    ORACLE_ADMIN_USER="$ORACLE_APP_USER"
+    ORACLE_ADMIN_PASSWORD="$ORACLE_APP_PASSWORD"
+    ORACLE_TABLESPACE=""
+    ORACLE_TEMP_TABLESPACE=""
+    CREATE_APP_USER="N"
+  else
+    ORACLE_ADMIN_USER="$(w_input "Oracle remoto" "Usuario administrador Oracle remoto (ej: system):" "${ORACLE_ADMIN_USER:-$ORACLE_ADMIN_USER_DEFAULT}")"
+    ORACLE_ADMIN_PASSWORD="$(w_password "Oracle remoto" "Password del usuario administrador Oracle:")"
 
-  ORACLE_TABLESPACE="$(w_input "Oracle remoto" "Tablespace de datos para iDempiere:" "${ORACLE_TABLESPACE:-$ORACLE_TABLESPACE_DEFAULT}")"
-  ORACLE_TEMP_TABLESPACE="$(w_input "Oracle remoto" "Temporary tablespace para iDempiere:" "${ORACLE_TEMP_TABLESPACE:-$ORACLE_TEMP_TABLESPACE_DEFAULT}")"
-
-  CREATE_APP_USER="$(w_yesno "Oracle remoto" "Crear o ajustar el usuario Oracle de aplicacion (${ORACLE_APP_USER})?\n\nSi = crear/actualizar usuario\nNo = usar usuario existente sin cambios" 12 70)"
-  DB_EXISTS="$(w_yesno "Base de datos" "El esquema de iDempiere ya existe en Oracle?\n\nSi = NO importar seed (ya esta cargado)\nNo = importar seed desde cero" 12 70)"
+    ORACLE_APP_USER="$(w_input "Oracle remoto" "Usuario de aplicacion iDempiere en Oracle remoto:" "${ORACLE_APP_USER:-$ORACLE_APP_USER_DEFAULT}")"
+    ORACLE_APP_PASSWORD="$(w_password "Oracle remoto" "Password del usuario de aplicacion ${ORACLE_APP_USER}:")"
+    ORACLE_TABLESPACE="$(w_input "Oracle remoto" "Tablespace de datos para iDempiere:" "${ORACLE_TABLESPACE:-$ORACLE_TABLESPACE_DEFAULT}")"
+    ORACLE_TEMP_TABLESPACE="$(w_input "Oracle remoto" "Temporary tablespace para iDempiere:" "${ORACLE_TEMP_TABLESPACE:-$ORACLE_TEMP_TABLESPACE_DEFAULT}")"
+    CREATE_APP_USER="$(w_yesno "Oracle remoto" "Crear o ajustar el usuario Oracle de aplicacion (${ORACLE_APP_USER})?\n\nSi = crear/actualizar usuario\nNo = usar usuario existente sin cambios" 12 70)"
+  fi
 
   # Validaciones
   if ! [[ "$PUERTO" =~ ^[0-9]+$ ]]; then
@@ -368,14 +424,14 @@ while true; do
     continue
   fi
 
-  if [[ -z "${ORACLE_ADMIN_PASSWORD:-}" || -z "${ORACLE_APP_PASSWORD:-}" ]]; then
+  if [[ -z "${ORACLE_APP_PASSWORD:-}" ]] || { [[ "$DB_EXISTS" != "Y" ]] && [[ -z "${ORACLE_ADMIN_PASSWORD:-}" ]]; }; then
     w_msg "Error" "Las contrasenas de Oracle no pueden estar vacias."
     continue
   fi
 
-  if [[ -z "$DB_SERVER" || -z "$DB_SERVICE" || -z "$ORACLE_ADMIN_USER" || \
-        -z "$ORACLE_APP_USER" || -z "$ORACLE_TABLESPACE" ]]; then
-    w_msg "Error" "DB_SERVER, DB_SERVICE, ORACLE_ADMIN_USER, ORACLE_APP_USER y ORACLE_TABLESPACE son obligatorios."
+  if [[ -z "$DB_SERVER" || -z "$DB_SERVICE" || -z "$ORACLE_APP_USER" ]] || \
+     { [[ "$DB_EXISTS" != "Y" ]] && { [[ -z "$ORACLE_ADMIN_USER" || -z "$ORACLE_TABLESPACE" ]]; }; }; then
+    w_msg "Error" "DB_SERVER, DB_SERVICE y ORACLE_APP_USER son obligatorios. Para una base nueva tambien se requieren ORACLE_ADMIN_USER y ORACLE_TABLESPACE."
     continue
   fi
 
@@ -426,6 +482,12 @@ DB_EXISTS:          $DB_EXISTS
     3) INSTALL_CANCELLED="yes"; echo "Cancelado por el usuario."; exit 0 ;;
   esac
 done
+
+if [[ "$DB_EXISTS" == "Y" ]]; then
+  RUN_SYNCDB="$(w_yesno_default_no "Esquema existente" "Ejecutar SyncDB contra el esquema existente?\n\nSolo responde Si si el build de iDempiere y la base ya estan planificados para la misma actualizacion. SyncDB modifica el esquema." 14 80)"
+else
+  RUN_SYNCDB="Y"
+fi
 
 # ============================================================
 # 2) Dependencias
@@ -509,23 +571,42 @@ check_port_free "$WEB_PORT_COMPOSED"
 check_port_free "$SSL_PORT_COMPOSED"
 check_port_free "$TELNET_PORT_COMPOSED"
 
-confirm_checkpoint "Checkpoint 2/6" "Se validara la conexion con Oracle remoto y los tablespaces.\n\nContinuar?"
+confirm_checkpoint "Checkpoint 2/6" "Se validara la conexion con Oracle remoto.\n\nContinuar?"
 
 step "Validando conexion Oracle remoto"
-if ! oracle_test_connection; then
-  echo "ERROR: no se pudo conectar a Oracle remoto."
-  echo "Verifica: host, puerto, service name y credenciales."
-  exit 1
+if [[ "$DB_EXISTS" == "Y" ]]; then
+  if ! oracle_test_app_connection; then
+    echo "ERROR: no se pudo conectar al esquema iDempiere existente en Oracle remoto."
+    exit 1
+  fi
+else
+  if ! oracle_test_admin_connection; then
+    echo "ERROR: no se pudo conectar a Oracle remoto con el usuario administrador."
+    echo "Verifica: host, puerto, service name y credenciales."
+    exit 1
+  fi
 fi
 echo "Conexion Oracle: OK"
 
-step "Validando tablespaces en Oracle remoto"
-oracle_verify_tablespace
-echo "Tablespaces: OK"
+if [[ "$DB_EXISTS" == "Y" ]]; then
+  step "Validando esquema iDempiere existente"
+  if ! oracle_verify_existing_idempiere_schema; then
+    exit 1
+  fi
+  echo "Esquema iDempiere existente: OK"
+else
+  step "Validando tablespaces en Oracle remoto"
+  oracle_verify_tablespace
+  echo "Tablespaces: OK"
+fi
 
-confirm_checkpoint "Checkpoint 3/6" "Se procedera con la creacion/ajuste del usuario Oracle de aplicacion.\n\nContinuar?"
-step "Preparando usuario de aplicacion Oracle"
-oracle_prepare_app_user
+if [[ "$DB_EXISTS" != "Y" ]]; then
+  confirm_checkpoint "Checkpoint 3/6" "Se procedera con la creacion/ajuste del usuario Oracle de aplicacion.\n\nContinuar?"
+  step "Preparando usuario de aplicacion Oracle"
+  oracle_prepare_app_user
+else
+  step "Saltando administracion Oracle (DB_EXISTS=Y)"
+fi
 
 # ============================================================
 # 4) Usuario OS y estructura de directorios
@@ -721,10 +802,12 @@ else
   step "Saltando import (DB_EXISTS=Y - esquema ya existe en Oracle)"
 fi
 
-step "Sync DB (RUN_SyncDB.sh)"
-if [[ -f "$IDEMPIERE_HOME/utils/RUN_SyncDB.sh" ]]; then
+if [[ "$RUN_SYNCDB" == "Y" && -f "$IDEMPIERE_HOME/utils/RUN_SyncDB.sh" ]]; then
+  step "Sync DB (RUN_SyncDB.sh)"
   cd "$IDEMPIERE_HOME/utils"
   sh RUN_SyncDB.sh
+elif [[ "$RUN_SYNCDB" != "Y" ]]; then
+  step "Saltando SyncDB por decision del usuario"
 else
   echo "ADVERTENCIA: no se encontro utils/RUN_SyncDB.sh - omitiendo sync."
 fi
@@ -749,6 +832,7 @@ if [[ ! -f "$IDEMPIERE_HOME/.ssh/idempiere" ]]; then
 fi
 
 chown -R idempiere:idempiere "$IDEMPIERE_HOME"
+chmod 600 "$IDEMPIERE_HOME/idempiereEnv.properties"
 
 # ============================================================
 # 6) Servicio systemd
